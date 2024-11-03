@@ -1,0 +1,12 @@
+jsonlib-python3
+numpy
+opencv-python
+matplotlib
+scikit-learn
+scikit-fuzzy
+scikit-image
+scikit-feature
+#sudo apt-get install python3-tk
+#pip install --upgrade scikit-image
+#pip install --upgrade scikit-image
+#graycoprops

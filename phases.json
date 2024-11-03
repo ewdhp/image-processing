@@ -1,0 +1,12 @@
+{
+  "phases": [
+    {
+      "phase": "Phase 1",
+      "func": [
+        "function1", 
+        "function2", 
+        "function3"
+      ]
+    }
+  ]
+}
