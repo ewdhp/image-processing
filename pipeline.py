@@ -2,16 +2,27 @@ import json
 import sys
 import cv2
 import matplotlib
+import mahotas
 matplotlib.use('TkAgg') 
 import matplotlib.pyplot as plt
 import numpy as np
-from sklearn.cluster import AgglomerativeClustering
+from sklearn.cluster import AgglomerativeClustering, KMeans
 import skfuzzy as fuzz
-from skimage.feature.texture import graycomatrix, graycoprops, local_binary_pattern
+from skimage.feature import graycomatrix, graycoprops, local_binary_pattern
+from skimage import restoration
+from skimage.segmentation import felzenszwalb, mark_boundaries, slic, quickshift, watershed
+from skimage.restoration import denoise_tv_chambolle, denoise_bilateral, denoise_wavelet
+from skimage.filters import threshold_otsu, threshold_local, gabor
+from skimage.color import rgb2gray, rgb2hsv, hsv2rgb
+from skimage.feature import canny
+from skimage.measure import label, regionprops, find_contours
+from skimage.morphology import disk, binary_erosion, binary_dilation, binary_opening, binary_closing, skeletonize
+from skimage.transform import resize, rotate, warp, AffineTransform, ProjectiveTransform
+import FbxCommon
+from fbx import FbxMesh, FbxNode, FbxSurfacePhong, FbxDouble3
 
 
 """Image I/O"""
-
 def read_image(image_path):
   """
   Read an image from the specified file path.
@@ -38,7 +49,6 @@ def write_image(image, image_path):
 
 
 """Image vectorization"""
-
 def vectorize_image(image):
   """
   Vectorize the input image.
@@ -58,7 +68,6 @@ def devectorize_image(vector, shape):
 
 
 """Color Spaces"""
-
 def convert_color(image, color_space='RGB'):
   """
   Convert the input image to a different color space.
@@ -190,7 +199,6 @@ def convert_to_xyz(image):
 
 
 """Thresholding"""
-
 def global_thresholding(image, threshold=127):
   """
   Apply global thresholding to the input image.
@@ -240,9 +248,7 @@ def otsu_thresholding(image):
   return binary_image
 
 
-
 """Morphological Operations"""
-
 def apply_erosion(image, kernel_size=5):
   """
   Apply erosion to the input image.
@@ -356,9 +362,7 @@ def apply_hit_or_miss_transform(image):
   return hit_or_miss_image
 
 
-
-""" Image Enhancement"""
-
+"""Image Enhancement"""
 def histogram_equalization(image):
   """
   Apply histogram equalization to the input image.
@@ -428,9 +432,7 @@ def denoise_image(image):
   return denoised_image
 
 
-
 """Image Transformation"""
-
 def translate_image(image, x=0, y=0):
   """
   Translate the input image by a given offset.
@@ -509,9 +511,7 @@ def crop_image(image, x=0, y=0, width=100, height=100):
   return cropped_image
 
 
-
 """Image Filtering"""
-
 def apply_filter(image, kernel):
   """
   Apply a filter to the input image.
@@ -659,9 +659,7 @@ def fft(image):
   return magnitude_spectrum
 
 
-
 """Image Segmentation"""
-
 def apply_kmeans(image, num_clusters=3):
   """
   Apply K-Means clustering to the input image.
@@ -678,7 +676,8 @@ def apply_kmeans(image, num_clusters=3):
   segmented_image = kmeans.cluster_centers_[kmeans.labels_]
   segmented_image = segmented_image.reshape(image.shape)
   return
-def apply_mean_shift(image, spatial_radius=10, color_radius=10, min_density=100):
+def apply_mean_shift(image, spatial_radius=10, color_radius=10, 
+                     min_density=100):
   """
   Apply Mean Shift clustering to the input image.
 
@@ -716,7 +715,7 @@ def apply_watershed(image):
   markers += 1
   markers[unknown == 255] = 0
   segmented_image = cv2.watershed(image, markers)
-  return segmented
+  return segmented_image
 def apply_contour_detection(image):
   """
   Apply contour detection to the input image.
@@ -747,7 +746,8 @@ def apply_edge_detection(image, min_val=100, max_val=200):
   gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
   edges = cv2.Canny(gray_image, min_val, max_val)
   return
-def apply_hough_transform(image, rho=1, theta=np.pi / 180, threshold=100):
+def apply_hough_transform(image, rho=1, theta=np.pi / 180, 
+                          threshold=100):
   """
   Apply Hough Transform to the input image.
 
@@ -777,7 +777,8 @@ def apply_hough_transform(image, rho=1, theta=np.pi / 180, threshold=100):
       y2 = int(y0 - 1000 * (a))
       cv2.line(hough_image, (x1, y1), (x2, y2), (0, 0, 255), 2)
   return
-def apply_hough_transform_p(image, rho=1, theta=np.pi / 180, threshold=100, min_line_length=100, max_line_gap=10):
+def apply_hough_transform_p(image, rho=1, theta=np.pi / 180, 
+                            threshold=100, min_line_length=100, max_line_gap=10):
   """
   Apply Probabilistic Hough Transform to the input image.
 
@@ -867,7 +868,8 @@ def apply_felzenszwalb(image, scale=100, sigma=0.5, min_size=50):
   segments = felzenszwalb(image, scale=scale, sigma=sigma, min_size=min_size)
   felzenszwalb_image = mark_boundaries(image, segments)
   return felzenszwalb_image
-def apply_slic(image, num_segments=100, compactness=10.0, max_iter=10):
+def apply_slic(image, num_segments=100, compactness=10.0, 
+               max_iter=10):
   """
   Apply Simple Linear Iterative Clustering (SLIC) to the input image.
 
@@ -918,9 +920,7 @@ def apply_watershed_segmentation(image):
   return watershed_image
 
 
-
 """Image Restoration"""
-
 def inpainting_deconvolution(image, kernel, iterations=10):
   """
   Apply inpainting deconvolution to the input image.
@@ -951,7 +951,8 @@ def total_variation_denoising(image, weight=0.1, max_iter=100):
   """
   denoised_image = cv2.denoise_TVL1([image], weight, max_iter)[0]
   return denoised_image
-def anisotropic_diffusion(image, num_iter=10, kappa=50, gamma=0.1, option=1):
+def anisotropic_diffusion(image, num_iter=10, kappa=50, gamma=0.1, 
+                          option=1):
   """
   Apply anisotropic diffusion to the input image.
 
@@ -1001,7 +1002,7 @@ def richardson_lucy_deconvolution(image, psf, iterations=10):
   numpy.ndarray: Image after Richardson-Lucy deconvolution.
   """
   deconvolved_image = restoration.richardson_lucy(image, psf, iterations=iterations)
-  return deconvolved
+  return deconvolved_image
 def blind_deconvolution(image, psf, iterations=10):
   """
   Apply blind deconvolution to the input image.
@@ -1016,7 +1017,8 @@ def blind_deconvolution(image, psf, iterations=10):
   """
   deconvolved_image = restoration.unsupervised_wiener(image, psf, iterations=iterations)
   return deconvolved_image
-def non_local_means_denoising(image, h=10, search_window=21, block_size=7):
+def non_local_means_denoising(image, h=10, search_window=21, 
+                              block_size=7):
   """
   Apply non-local means denoising to the input image.
 
@@ -1075,9 +1077,7 @@ def wiener_filtering(image, kernel, noise_var=0.01):
   return deconvolved_image
 
 
-
 """Gradients"""
-
 def apply_sobel_operator(image, dx=1, dy=1, ksize=3):
   """
   Apply Sobel operator to the input image.
@@ -1122,7 +1122,8 @@ def apply_laplacian_operator(image, ksize=3):
   """
   laplacian = cv2.Laplacian(image, cv2.CV_64F, ksize=ksize)
   return laplacian
-def apply_canny_edge_detection(image, threshold1=100, threshold2=200):
+def apply_canny_edge_detection(image, threshold1=100, 
+                               threshold2=200):
   """
   Apply Canny edge detection to the input image.
 
@@ -1139,10 +1140,9 @@ def apply_canny_edge_detection(image, threshold1=100, threshold2=200):
   return edges
 
 
-
 """Texture Features"""
-
-def apply_gabor_filter(image, ksize=31, sigma=4.0, theta=1.0, lambd=10.0, gamma=0.5, psi=0):
+def apply_gabor_filter(image, ksize=31, sigma=4.0, theta=1.0, 
+                       lambd=10.0, gamma=0.5, psi=0):
   """
   Applies a Gabor filter to the input image.
 
@@ -1164,7 +1164,8 @@ def apply_gabor_filter(image, ksize=31, sigma=4.0, theta=1.0, lambd=10.0, gamma=
   gabor_kernel = cv2.getGaborKernel((ksize, ksize), sigma, theta, lambd, gamma, psi, ktype=cv2.CV_32F)
   filtered_image = cv2.filter2D(image, cv2.CV_8UC3, gabor_kernel)
   return filtered_image
-def compute_cooccurrence_matrix(image, distances=[1], angles=[0], levels=256, 
+def compute_cooccurrence_matrix(image, distances=[1], angles=[0], 
+                                levels=256, 
 symmetric=True, normed=True):
     """
     Compute the co-occurrence matrix of an image.
@@ -1198,7 +1199,8 @@ def compute_lbp(image, radius=1, n_points=8):
     gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     lbp = cv2.LBP(gray_image, radius, n_points)
     return lbp
-def compute_glcm_features(image, distances=[1], angles=[0], levels=256, symmetric=True, normed=True):
+def compute_glcm_features(image, distances=[1], angles=[0], 
+                          levels=256, symmetric=True, normed=True):
   """
   Compute the Gray Level Co-occurrence Matrix (GLCM) features of an image.
 
@@ -1214,15 +1216,15 @@ def compute_glcm_features(image, distances=[1], angles=[0], levels=256, symmetri
   dict: Dictionary of GLCM features.
   """
   gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-  glcm = greycomatrix(gray_image, distances=distances, angles=angles, 
+  glcm = graycomatrix(gray_image, distances=distances, angles=angles, 
   levels=levels, symmetric=symmetric, normed=normed)
   features = {
-    'contrast': greycoprops(glcm, 'contrast'),
-    'dissimilarity': greycoprops(glcm, 'dissimilarity'),
-    'homogeneity': greycoprops(glcm, 'homogeneity'),
-    'energy': greycoprops(glcm, 'energy'),
-    'correlation': greycoprops(glcm, 'correlation'),
-    'ASM': greycoprops(glcm, 'ASM')
+    'contrast': graycoprops(glcm, 'contrast'),
+    'dissimilarity': graycoprops(glcm, 'dissimilarity'),
+    'homogeneity': graycoprops(glcm, 'homogeneity'),
+    'energy': graycoprops(glcm, 'energy'),
+    'correlation': graycoprops(glcm, 'correlation'),
+    'ASM': graycoprops(glcm, 'ASM')
   }
   return features
 def compute_lbp_features(image, radius=1, n_points=8):
@@ -1273,9 +1275,7 @@ def compute_gabor_features(image, frequencies=[0.1, 0.3, 0.5, 0.7, 0.9]):
   return gabor_features   
   
 
-
 """Shape Features"""
-
 def compute_contours(image):
   gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
   contours, _ = cv2.findContours(gray_image, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -1316,9 +1316,7 @@ def compute_convex_hull(image):
   return hull_image
   
 
-
 """Color Features"""
-
 def compute_color_coherence_vector(image, threshold=0.1):
   """
   Compute the Color Coherence Vector (CCV) of an image.
@@ -1416,9 +1414,7 @@ def compute_dominant_color(image, k=3):
   return dominant_color
 
 
-
 """Edge features"""
-
 def compute_edge_maps(image):
   gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
   edges = cv2.Canny(gray_image, 100, 200)
@@ -1457,20 +1453,24 @@ def apply_sobel_x(image):
   sobelx = cv2.Sobel(gray_image, cv2.CV_64F, 1, 0, ksize=5)
   sobelx = cv2.convertScaleAbs(sobelx)
   return sobelx
-def apply_sobel_y(image):
-  """
-  Apply Sobel edge detection in the y-direction to the input image.
+def apply_sobel_y(image, ksize=5):
+    """
+    Apply Sobel edge detection in the y-direction to the input image.
 
-  Parameters:
-  image (numpy.ndarray): Input image.
+    Parameters:
+    image (numpy.ndarray): Input image.
+    ksize (int): Size of the extended Sobel kernel; it must be 1, 3, 5, or 7.
 
-  Returns:
-  numpy.ndarray: Image after Sobel edge detection in the y-direction.
-  """
-  gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-  sobely = cv2.Sobel(gray_image, cv2.CV_64F, 0, 1, ksize=5)
-  sobely = cv2.convertScaleAbs(sobely)
-  return sobely
+    Returns:
+    numpy.ndarray: Image after Sobel edge detection in the y-direction.
+    """
+    if len(image.shape) == 3 and image.shape[2] == 3:
+        gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    else:
+        gray_image = image
+    sobely = cv2.Sobel(gray_image, cv2.CV_64F, 0, 1, ksize=ksize)
+    sobely = cv2.convertScaleAbs(sobely)
+    return sobely
 def apply_sobel(image):
   """
   Apply Sobel edge detection to the input image.
@@ -1488,9 +1488,7 @@ def apply_sobel(image):
   return sobel
 
 
-
 """Contour features"""
-
 def compute_contour_area(image):
   gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
   _, binary_image = cv2.threshold(gray_image, 127, 255, cv2.THRESH_BINARY)
@@ -1567,9 +1565,7 @@ def compute_contour_hu_moments(image):
   return hu_moments
 
 
-
 """Interest Point Detection"""
-
 def harris_corner_detection(image, block_size=2, ksize=3, k=0.04):
   gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
   gray_image = np.float32(gray_image)
@@ -1577,7 +1573,8 @@ def harris_corner_detection(image, block_size=2, ksize=3, k=0.04):
   dst = cv2.dilate(dst, None)
   image[dst > 0.01 * dst.max()] = [0, 0, 255]
   return image
-def blob_detection(image, min_threshold=10, max_threshold=200, min_area=1500):
+def blob_detection(image, min_threshold=10, max_threshold=200, 
+                   min_area=1500):
 
   gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
   params = cv2.SimpleBlobDetector_Params()
@@ -1602,9 +1599,7 @@ def sift_detection(image):
   return image_with_keypoints
 
       
-
 """Local Features"""
-
 def surf_detection(image):
   gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
   surf = cv2.xfeatures2d.SURF_create()
@@ -1640,9 +1635,7 @@ def hog_detection(image):
   return h
 
 
-
 """Clustering"""
-
 def kmeans_clustering(image, k=3):
   """
   Apply K-Means clustering to segment the image.
@@ -1696,9 +1689,7 @@ def fuzzy_cmeans_clustering(image, n_clusters=3):
   return clustered_image
 
 
-
 """Region Growing"""
-
 def region_growing(image, seed_point, threshold=10):
   """
   Apply region growing algorithm to segment the image.
@@ -1731,9 +1722,7 @@ def region_growing(image, seed_point, threshold=10):
   return segmented_image
 
 
-
 """Triangulation"""
-
 def delaunay_triangulation(image):
   """
   Apply Delaunay triangulation to the input image.
@@ -1807,9 +1796,65 @@ def voronoi_diagram(image):
   return voronoi_image
 
 
+"""Mesh Generation"""
+def generate_mesh(image, grid_size=(10, 10)):
+  """
+  Generate a mesh grid for the input image.
+
+  Parameters:
+  image (numpy.ndarray): Input image.
+  grid_size (tuple): Size of the grid.
+
+  Returns:
+  numpy.ndarray: Image with mesh grid.
+  """
+  mesh_image = image.copy()
+  height, width = image.shape[:2]
+  for y in range(0, height, grid_size[0]):
+    cv2.line(mesh_image, (0, y), (width, y), (0, 0, 0), 1)
+  for x in range(0, width, grid_size[1]):
+    cv2.line(mesh_image, (x, 0), (x, height), (0, 0, 0), 1)
+  return mesh_image
+def generate_voronoi_mesh(image, grid_size=(10, 10)):
+  """
+  Generate a Voronoi mesh grid for the input image.
+
+  Parameters:
+  image (numpy.ndarray): Input image.
+  grid_size (tuple): Size of the grid.
+
+  Returns:
+  numpy.ndarray: Image with Voronoi mesh grid.
+  """
+  gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+  height, width = gray_image.shape
+  subdiv = cv2.Subdiv2D((0, 0, width, height))
+
+  points = []
+  for y in range(0, height, grid_size[0]):
+    for x in range(0, width, grid_size[1]):
+      points.append((x, y))
+
+  for p in points:
+    subdiv.insert(p)
+
+  (facets, centers) = subdiv.getVoronoiFacetList([])
+
+  mesh_image = image.copy()
+  for i in range(len(facets)):
+    ifacet_arr = []
+    for f in facets[i]:
+      ifacet_arr.append(f)
+    ifacet = np.array(ifacet_arr, np.int)
+    color = (0, 255, 0)
+    cv2.fillConvexPoly(mesh_image, ifacet, color)
+    cv2.polylines(mesh_image, [ifacet], True, (0, 0, 0), 1)
+    cv2.circle(mesh_image, (centers[i][0], centers[i][1]), 3, (0, 0, 255), -1)
+
+  return mesh_image
+
 
 """Image Blending"""
-
 def blend_images(image1, image2, alpha=0.5, beta=0.5, gamma=0):
   """
   Blend two images together.
@@ -1987,7 +2032,8 @@ def apply_mask(image, mask):
   """
   masked_image = cv2.bitwise_and(image, image, mask=mask)
   return masked_image
-def apply_threshold(image, threshold=128, max_value=255, threshold_type=cv2.THRESH_BINARY):
+def apply_threshold(image, threshold=128, max_value=255, 
+                    threshold_type=cv2.THRESH_BINARY):
   """
   Apply a threshold to the input image.
 
@@ -2042,12 +2088,9 @@ def apply_contour(image):
   """Structure from Motion (SfM)"""
 
 
-
-"""2d to 3d conversion"""
-
-
 """Structure from Stereo (SfS)"""
-def estimate_depth_map(left_image, right_image, num_disparities=16, block_size=15):
+def estimate_depth_map(left_image, right_image, num_disparities=16, 
+                       block_size=15):
   """
   Estimate depth map from stereo images.
 
@@ -2064,7 +2107,8 @@ def estimate_depth_map(left_image, right_image, num_disparities=16, block_size=1
   disparity = stereo.compute(left_image, right_image)
   depth_map = cv2.normalize(disparity, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX)
   return depth_map
-def reconstruct_3D_from_stereo(left_image, right_image, focal_length, baseline):
+def reconstruct_3D_from_stereo(left_image, right_image, focal_length, 
+                               baseline):
   """
   Reconstruct 3D points from stereo images.
 
@@ -2085,6 +2129,7 @@ def reconstruct_3D_from_stereo(left_image, right_image, focal_length, baseline):
           [0, 0, 1 / baseline, 0]])
   points_3D = cv2.reprojectImageTo3D(depth_map, Q)
   return points_3D
+
 
 """Shape from Shading (SfS)"""
 def estimate_surface_normals(image, light_direction):
@@ -2167,7 +2212,8 @@ def reconstruct_3D_from_silhouettes(silhouettes, projection_matrices):
   volume = volume_intersection(silhouettes, projection_matrices)
   return volume
 
-def apply_disparity_map(left_image, right_image, num_disparities=16, block_size=15):
+def apply_disparity_map(left_image, right_image, num_disparities=16, 
+                        block_size=15):
   """
   Apply disparity map calculation to the input stereo images.
 
@@ -2262,7 +2308,7 @@ def apply_camera_calibration(object_points, image_points, image_size):
   camera_matrix = np.zeros((3, 3))
   dist_coeffs = np.zeros((1, 5))
   _, camera_matrix, dist_coeffs, _, _ = cv2.calibrateCamera(object_points, image_points, image_size, camera_matrix, dist_coeffs)
-  return camera_matrix, dist
+  return camera_matrix, dist_coeffs
 def apply_perspective_transformation(image, src_points, dst_points):
   """
   Apply perspective transformation to the input image.
@@ -2419,7 +2465,8 @@ def triangulate_points(proj_matrix1, proj_matrix2, points1, points2):
   points4D = cv2.triangulatePoints(proj_matrix1, proj_matrix2, points1.T, points2.T)
   points3D = points4D[:3] / points4D[3]
   return points3D.T
-def bundle_adjustment(points3D, keypoints1, keypoints2, proj_matrix1, proj_matrix2):
+def bundle_adjustment(points3D, keypoints1, keypoints2, proj_matrix1, 
+                      proj_matrix2):
   """
   Perform bundle adjustment to refine 3D points and camera parameters.
 
@@ -2450,11 +2497,25 @@ def estimate_camera_pose(image1, image2):
   keypoints1, descriptors1 = extract_features(image1)
   keypoints2, descriptors2 = extract_features(image2)
   keypoints1, matches = track_features(image1, image2, keypoints1, descriptors1)
+  keypoints2, matches = track_features(image1, image2, keypoints1, descriptors1)
+  keypoints1, matches = track_features(image1, image2, keypoints1, descriptors1)
+  keypoints1, descriptors1 = extract_features(image1)
+  keypoints2, descriptors2 = extract_features(image2)
+  keypoints2, matches = track_features(image1, image2, keypoints1, descriptors1)
+  keypoints2, matches = track_features(image1, image2, keypoints1, descriptors1)
+  keypoints2, matches = track_features(image1, image2, keypoints1, descriptors1)
+  keypoints2, matches = track_features(image1, image2, keypoints1, descriptors1)
+  keypoints1, descriptors1 = extract_features(image1)
+  keypoints2, descriptors2 = extract_features(image2)
+  keypoints2, matches = track_features(image1, image2, keypoints1, descriptors1)
+  keypoints2, matches = track_features(image1, image2, keypoints1, descriptors1)
   points1 = np.array([keypoints1[m.queryIdx].pt for m in matches])
   points2 = np.array([keypoints2[m.trainIdx].pt for m in matches])
   camera_matrix = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
   _, rvec, tvec, _ = cv2.solvePnPRansac(points1, points2, camera_matrix, None)
   return rvec, tvec
+
+
 def estimate_camera_matrix(image, focal_length, principal_point):
   """
   Estimate the camera matrix from the input image.
@@ -2510,34 +2571,11 @@ def reconstruct_3D_points(image1, image2, focal_length, principal_point):
   points2 = np.array([keypoints2[m.trainIdx].pt for m in matches])
   points3D = triangulate_points(projection_matrix1, projection_matrix2, points1, points2)
   return points3D
-def refine_camera_pose(points3D, keypoints1, keypoints2, camera_matrix, rvec, tvec):
-  """
-  Refine the camera pose using bundle adjustment.
-
-  Parameters:
-  points3D (numpy.ndarray): 3D points.
-  keypoints1: Keypoints from the first image.
-  keypoints2: Keypoints from the second image.
-  camera_matrix (numpy.ndarray): Camera matrix.
-  rvec (numpy.ndarray): Rotation vector.
-  tvec (numpy.ndarray): Translation vector.
-
-  Returns:
-  numpy.ndarray: Refined rotation and translation vectors.
-  """
-  projection_matrix1 = estimate_projection_matrix(camera_matrix, np.zeros(3), np.zeros(3))
-  projection_matrix2 = estimate_projection_matrix(camera_matrix, rvec, tvec)
-  points1 = np.array([keypoints1[m.queryIdx].pt for m in matches])
-  points2 = np.array([keypoints2[m.trainIdx].pt for m in matches])
-  points3D = triangulate_points(projection_matrix1, projection_matrix2, points1, points2)
-  refined_points3D, refined_projection_matrix1, refined_projection_matrix2 = bundle_adjustment(points3D, keypoints1, keypoints2, projection_matrix1, projection_matrix2)
-  rvec, tvec = cv2.solvePnP(refined_points3D, points2, camera_matrix, None)
-  return rvec, tvec
 
 
 """Stereo Vision"""
-
-def apply_stereo_block_matching(left_image, right_image, num_disparities=16, block_size=15):
+def apply_stereo_block_matching(left_image, right_image, num_disparities=16, 
+                                block_size=15):
   """
   Apply block matching to calculate the disparity map.
 
@@ -2553,7 +2591,8 @@ def apply_stereo_block_matching(left_image, right_image, num_disparities=16, blo
   stereo = cv2.StereoBM_create(numDisparities=num_disparities, blockSize=block_size)
   disparity = stereo.compute(left_image, right_image)
   return disparity
-def apply_stereo_sgbm(left_image, right_image, num_disparities=16, block_size=15):
+def apply_stereo_sgbm(left_image, right_image, num_disparities=16, 
+                      block_size=15):
   """
   Apply semi-global block matching to calculate the disparity map.
 
@@ -2681,7 +2720,8 @@ def apply_stereo_hh(left_image, right_image):
   stereo = cv2.StereoSGBM_create(minDisparity=16, numDisparities=32, blockSize=15)
   disparity = stereo.compute(left_image, right_image)
   return
-def apply_stereo_sgbm(left_image, right_image, num_disparities=16, block_size=15):
+def apply_stereo_sgbm(left_image, right_image, num_disparities=16, 
+                      block_size=15):
   """
   Apply semi-global block matching to calculate the disparity map.
 
@@ -2697,7 +2737,8 @@ def apply_stereo_sgbm(left_image, right_image, num_disparities=16, block_size=15
   stereo = cv2.StereoSGBM_create(numDisparities=num_disparities, blockSize=block_size)
   disparity = stereo.compute(left_image, right_image)
   return disparity
-def apply_stereo_block_matching(left_image, right_image, num_disparities=16, block_size=15):
+def apply_stereo_block_matching(left_image, right_image, num_disparities=16, 
+                                block_size=15):
   """
   Apply block matching to calculate the disparity map.
 
@@ -2713,7 +2754,6 @@ def apply_stereo_block_matching(left_image, right_image, num_disparities=16, blo
   stereo = cv2.StereoBM_create(numDisparities=num_disparities, blockSize=block_size)
   disparity = stereo.compute(left_image, right_image)
   return disparity
-
 
 
 def apply_hough_lines(image, rho=1, theta=np.pi/180, threshold=100):
@@ -2746,7 +2786,8 @@ def apply_hough_lines(image, rho=1, theta=np.pi/180, threshold=100):
       y2 = int(y0 - 1000 * (a))
       cv2.line(hough_image, (x1, y1), (x2, y2), (0, 0, 255), 2)
   return hough_image
-def apply_hough_circles(image, method=cv2.HOUGH_GRADIENT, dp=1, min_dist=20, param1=50, param2=30, min_radius=0, max_radius=0):
+def apply_hough_circles(image, method=cv2.HOUGH_GRADIENT, dp=1, min_dist=20, 
+                        param1=50, param2=30, min_radius=0, max_radius=0):
   """
   Apply Hough circle detection to the input image.
 
@@ -2792,7 +2833,8 @@ def apply_template_matching(image, template, method=cv2.TM_CCOEFF_NORMED):
   bottom_right = (top_left[0] + w, top_left[1] + h)
   cv2.rectangle(image, top_left, bottom_right, 255, 2)
   return image
-def apply_face_detection(image, cascade_path='haarcascade_frontalface_default.xml'):
+def apply_face_detection(image, 
+                         cascade_path='haarcascade_frontalface_default.xml'):
   """
   Apply face detection to the input image.
 
@@ -2810,7 +2852,8 @@ def apply_face_detection(image, cascade_path='haarcascade_frontalface_default.xm
   for (x, y, w, h) in faces:
     cv2.rectangle(face_image, (x, y), (x + w, y + h), (255, 0, 0), 2)
   return face_image
-def apply_eye_detection(image, cascade_path='haarcascade_eye.xml'):
+def apply_eye_detection(image, 
+                        cascade_path='haarcascade_eye.xml'):
   """
   Apply eye detection to the input image.
 
@@ -2828,7 +2871,8 @@ def apply_eye_detection(image, cascade_path='haarcascade_eye.xml'):
   for (x, y, w, h) in eyes:
     cv2.rectangle(eye_image, (x, y), (x + w, y + h), (0, 255, 0), 2)
   return eye_image
-def apply_smile_detection(image, cascade_path='haarcascade_smile.xml'):
+def apply_smile_detection(image, 
+                          cascade_path='haarcascade_smile.xml'):
   """
   Apply smile detection to the input image.
 
@@ -2846,7 +2890,8 @@ def apply_smile_detection(image, cascade_path='haarcascade_smile.xml'):
   for (x, y, w, h) in smiles:
     cv2.rectangle(smile_image, (x, y), (x + w, y + h), (0, 0, 255), 2)
   return smile_image
-def apply_object_detection(image, config_path='ssd_mobilenet_v3_large_coco_2020_01_14.pbtxt', weights_path='frozen_inference_graph.pb'):
+def apply_object_detection(image, 
+                           config_path='ssd_mobilenet_v3_large_coco_2020_01_14.pbtxt', weights_path='frozen_inference_graph.pb'):
   """
   Apply object detection to the input image.
 
@@ -3002,6 +3047,163 @@ def apply_image_segmentation(image, method='watershed'):
   return image
 
 
+"""Depth Estimation"""
+def calculate_depth_map(disparity_map, focal_length, baseline):
+  """
+  Calculate the depth map from the disparity map.
+
+  Parameters:
+  disparity_map (numpy.ndarray): Disparity map.
+  focal_length (float): Focal length of the camera.
+  baseline (float): Distance between the two cameras.
+  """
+  depth_map = np.zeros(disparity_map.shape, dtype=np.float32)
+  for y in range(disparity_map.shape[0]):
+    for x in range(disparity_map.shape[1]):
+      if disparity_map[y, x] > 0:
+        depth_map[y, x] = (focal_length * baseline) / disparity_map[y, x]
+  return depth_map
+def calculate_disparity_map(left_image, right_image, num_disparities=16, 
+                            block_size=15):
+  """
+  Calculate the disparity map between two images.
+
+  Parameters:
+  left_image (numpy.ndarray): Left input image.
+  right_image (numpy.ndarray): Right input image.
+  num_disparities (int): Number of disparities.
+  block_size (int): Block size.
+
+  Returns:
+  numpy.ndarray: Disparity map.
+  """
+  stereo = cv2.StereoBM_create(numDisparities=num_disparities, blockSize=block_size)
+  disparity = stereo.compute(left_image, right_image)
+  return disparity
+
+
+"""3D file export"""
+def export_to_ply(points, colors, filename='output.ply'):
+  """
+  Export the 3D points to a PLY file.
+
+  Parameters:
+  points (numpy.ndarray): 3D points.
+  colors (numpy.ndarray): Colors of the points.
+  filename (str): Output filename.
+  """
+  with open(filename, 'w') as f:
+    f.write('ply\n')
+    f.write('format ascii 1.0\n')
+    f.write('element vertex %d\n' % len(points))
+    f.write('property float x\n')
+    f.write('property float y\n')
+    f.write('property float z\n')
+    f.write('property uchar red\n')
+    f.write('property uchar green\n')
+    f.write('property uchar blue\n')
+    f.write('end_header\n')
+    for i in range(len(points)):
+      f.write('%f %f %f %d %d %d\n' % (points[i][0], points[i][1], points[i][2], colors[i][0], colors[i][1], colors[i][2]))
+def export_to_obj(points, filename='output.obj'):
+  """
+  Export the 3D points to an OBJ file.
+
+  Parameters:
+  points (numpy.ndarray): 3D points.
+  filename (str): Output filename.
+  """
+  with open(filename, 'w') as f:
+    for point in points:
+      f.write('v %f %f %f\n' % (point[0], point[1], point[2]))
+def export_to_stl(points, filename='output.stl'):
+  """
+  Export the 3D points to an STL file.
+
+  Parameters:
+  points (numpy.ndarray): 3D points.
+  filename (str): Output filename.
+  """
+  mesh = mesh.Mesh(np.zeros(len(points), dtype=mesh.Mesh.dtype))
+  for i, point in enumerate(points):
+    mesh.vectors[i] = point
+  mesh.save(filename)
+def export_to_gltf(points, colors, filename='output.gltf'):
+  """
+  Export the 3D points to a glTF file.
+
+  Parameters:
+  points (numpy.ndarray): 3D points.
+  colors (numpy.ndarray): Colors of the points.
+  filename (str): Output filename.
+  """
+  mesh = trimesh.Trimesh(vertices=points, vertex_colors=colors)
+  mesh.export(filename)
+def export_to_usdz(points, colors, filename='output.usdz'):
+  """
+  Export the 3D points to a USDZ file.
+
+  Parameters:
+  points (numpy.ndarray): 3D points.
+  colors (numpy.ndarray): Colors of the points.
+  filename (str): Output filename.
+  """
+  mesh = trimesh.Trimesh(vertices=points, vertex_colors=colors)
+  mesh.export(filename)
+def export_to_unity(points, colors, filename='output.unity'):
+  """
+  Export the 3D points to a Unity-compatible format.
+
+  Parameters:
+  points (numpy.ndarray): 3D points.
+  colors (numpy.ndarray): Colors of the points.
+  filename (str): Output filename.
+  """
+  with open(filename, 'w') as f:
+    f.write('o Object\n')
+    for i, point in enumerate(points):
+      f.write('v %f %f %f %f %f %f\n' % (point[0], point[1], point[2], colors[i][0] / 255.0, colors[i][1] / 255.0, colors[i][2] / 255.0))
+    f.write('usemtl None\n')
+    f.write('s off\n')
+    for i in range(0, len(points), 3):
+      f.write('f %d %d %d\n' % (i + 1, i + 2, i + 3))
+def export_to_fbx(points, colors, filename='output.fbx'):
+  """
+  Export the 3D points to an FBX file.
+
+  Parameters:
+  points (numpy.ndarray): 3D points.
+  colors (numpy.ndarray): Colors of the points.
+  filename (str): Output filename.
+  """
+
+  # Initialize the SDK manager
+  manager, scene = FbxCommon.InitializeSdkObjects()
+
+  # Create the mesh
+  mesh = FbxMesh.Create(manager, "mesh")
+
+  # Set the vertices
+  mesh.InitControlPoints(len(points))
+  for i, point in enumerate(points):
+    mesh.SetControlPointAt(FbxDouble3(point[0], point[1], point[2]), i)
+
+  # Create the node and add the mesh to it
+  node = FbxNode.Create(manager, "node")
+  node.SetNodeAttribute(mesh)
+  scene.GetRootNode().AddChild(node)
+
+  # Create the material
+  material = FbxSurfacePhong.Create(manager, "material")
+  material.Diffuse.Set(FbxDouble3(1.0, 1.0, 1.0))
+  node.AddMaterial(material)
+
+  # Export the scene
+  FbxCommon.SaveScene(manager, scene, filename)
+
+  # Destroy the SDK manager
+  manager.Destroy()
+
 
 """Utility Functions"""
 def load_json_file(file_path):
@@ -3010,26 +3212,35 @@ def load_json_file(file_path):
         data = json.load(f)
     print("JSON file loaded successfully")
     return data
+
 """Pipeline Functions"""
 def process_data(data, image):
     for phase in data['phases']:
         print(f"------ Processing {phase['phase']} ------")
-        for func_name in phase['func']:
+        for func_info in phase['func']:
+            func_name = func_info['name']
             func = globals().get(func_name)
             if func:
-                image = func(image)
+                if 'params' in func_info:
+                    func_params = func_info['params']
+                    image = func(image, **func_params)
+                else:
+                    image = func(image)
                 if image is None or image.size == 0:
                     print(f"Error: {func_name} returned an invalid image.")
                     return None
+                display_image(image, title=f"Result of {func_name}")
             else:
                 print(f"Function {func_name} not found")
     return image
+
 """Display Functions"""
 def display_image(image, title='Image'):
     plt.imshow(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
     plt.title(title)
     plt.axis('off')
     plt.show()
+
 """Main Function"""
 def main():
     if len(sys.argv) < 2:
@@ -3055,5 +3266,6 @@ def main():
     # Save or display the processed image
     cv2.imwrite('processed_image.jpg', processed_image)
     display_image(processed_image, 'Processed Image')
+
 if __name__ == "__main__":
     main()

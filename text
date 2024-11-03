@@ -1,0 +1,91 @@
+Optimized 2D to 3D Pipeline with Phase Input Dependencies
+
+Image Acquisition
+Input Dependencies: None (initial phase).
+Output: Raw image data.
+
+Preprocessing
+Input Dependencies:
+Raw Image Data from Image Acquisition.
+Functions:
+resize, rotate, rgb2gray
+Denoising Techniques: denoise_tv_chambolle, denoise_bilateral, denoise_wavelet
+Output: Enhanced Image, possibly in multiple channels.
+
+Segmentation
+Input Dependencies:
+Enhanced Image from Preprocessing.
+Functions:
+felzenszwalb, slic, quickshift, watershed
+Output: Segmented Image with clear object boundaries.
+
+Feature Extraction
+Input Dependencies:
+Segmented Image from Segmentation.
+Edge Map from Preprocessing (optional).
+Functions:
+Edge Detection: canny, apply_sobel
+Shape Features: regionprops, label
+Texture Features: graycomatrix, graycoprops, local_binary_pattern, gabor
+Output: Feature Maps, Contours, and Shape Descriptors.
+
+Depth Estimation
+Input Dependencies:
+Segmented Image from Segmentation.
+Edge Map from Feature Extraction.
+Functions:
+calculate_depth_map, calculate_disparity_map
+Output: High-quality Depth Map, Disparity Map.
+
+Point Cloud Generation
+Input Dependencies:
+Depth Map and/or Disparity Map from Depth Estimation.
+Functions:
+Shape Features, delaunay_triangulation
+Output: Dense Point Cloud (3D array of vertices).
+
+Mesh Generation
+Input Dependencies:
+Point Cloud from Point Cloud Generation.
+Functions:
+Triangulation techniques, surface reconstruction (e.g., Poisson reconstruction).
+Output: Detailed Mesh (collection of vertices and faces).
+
+Texture Mapping
+Input Dependencies:
+Mesh from Mesh Generation.
+Feature Maps from Feature Extraction.
+Functions:
+UV unwrapping, applying textures based on Feature Maps.
+Output: Textured Mesh with Material Properties.
+
+Post-processing
+Input Dependencies:
+Textured Mesh from Texture Mapping.
+Functions:
+binary_opening, binary_closing, skeletonize
+Output: Cleaned and optimized Mesh.
+
+Analysis and Interaction
+Input Dependencies:
+Features from Feature Extraction and Point Cloud.
+Textured Mesh from Texture Mapping (optional for detailed analysis).
+Functions:
+AgglomerativeClustering, KMeans, fuzz
+Output: Clusters and Local Features, ready for visualization.
+
+Rendering and Visualization
+Input Dependencies:
+Cleaned Mesh from Post-processing.
+Textured Mesh from Texture Mapping.
+Functions:
+Real-time rendering in Unity, shader programming for advanced effects.
+Output: High-fidelity rendered 3D Model for analysis and display.
+
+Export and Application
+Input Dependencies:
+Textured Mesh from Texture Mapping.
+Cleaned Mesh from Post-processing.
+Functions:
+Export as FBX, GLTF/GLB, OBJ, or custom formats.
+Output: Final 3D Model File ready for application or deployment.

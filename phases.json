@@ -1,11 +1,17 @@
 {
   "phases": [
     {
-      "phase": "Phase 1",
+      "phase": "Preprocessing",
       "func": [
-        "function1", 
-        "function2", 
-        "function3"
+        {
+          "name": "rgb2gray"
+        },
+        {
+          "name": "denoise_bilateral"
+        },
+        {
+          "name": "denoise_wavelet"
+        }
       ]
     }
   ]
